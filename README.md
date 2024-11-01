@@ -55,6 +55,10 @@ You can also copy and paste the last two lines...
 
 ...as many times as you want to add more tabs, or simpy remove the ones you don't need.
 
+Optional:
+
+You can add this script into a function in your .bashrc / .zshrc file to execute this with a simple "oneWord" command.
+
 ---
 
 ## 📝 Script Breakdown
