@@ -1,4 +1,4 @@
-# Kitty Tab Manager
+# Pretabs-Kitty
 
 This script is designed to open the [Kitty](https://sw.kovidgoyal.net/kitty/) terminal emulator with four preconfigured tabs, each with a specific title. This setup is useful for users who want to quickly open multiple tabs with specific titles in a single command.
 
@@ -86,4 +86,4 @@ If you have any questions, issues, or suggestions, please feel free to open an i
 
 ---
 
-### 🚀 Quickly manage multiple tabs in Kitty with custom titles using Kitty Tab Manager!
+### 🚀 Quickly manage multiple tabs in Kitty with custom titles using Pretabs-Kitty!
