@@ -51,6 +51,7 @@ You need to modify the script and change the placeholders "TabX" with anything y
 You can also copy and paste the last two lines...
 
 `kitty @ focus-tab --match 'title:Tab3'`: Switches focus to the tab titled `Tab3`.
+
 `kitty @ launch --type=tab --tab-title "Tab4" --keep-focus`: Opens a new tab with the title `Tab4`.
 
 ...as many times as you want to add more tabs, or simpy remove the ones you don't need.
