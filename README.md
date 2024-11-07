@@ -1,6 +1,6 @@
 # Pretabs-Kitty
 
-This script is designed to open the [Kitty](https://sw.kovidgoyal.net/kitty/) terminal emulator with four preconfigured tabs, each with a specific title. This setup is useful for users who want to quickly open multiple tabs with specific titles in a single command.
+This script is designed to open in [Kitty](https://sw.kovidgoyal.net/kitty/) terminal emulator a set of preconfigured tabs, each with a specific title. This setup is useful for users who want to quickly open multiple tabs with specific titles in a single command.
 
 ---
 
