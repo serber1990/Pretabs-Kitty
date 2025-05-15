@@ -24,6 +24,12 @@ sudo apt-get install kitty
 
 or follow the installation instructions on the [Kitty website](https://sw.kovidgoyal.net/kitty/).
 
+Then you need to add this option inside your kitty.conf file in order for kitty to allow remote control:
+
+```bash
+allow_remote_control yes
+```
+
 ### Clone the Repository
 
 Clone this repository to your local machine:
