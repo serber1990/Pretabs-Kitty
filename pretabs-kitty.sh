@@ -98,7 +98,7 @@ echo -e "${GREEN}  ✔ Script created:${RESET} ${BOLD}${OUTPUT_SCRIPT}${RESET}"
 # ── 6. zshrc or manual ────────────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}What would you like to do next?${RESET}"
-echo -e "  ${DIM}1)${RESET} Add it to ${HOME}/.zshrc as a shell command"
+echo -e "  ${DIM}1)${RESET} Add it to ~/.zshrc — auto-launch on every new zsh session"
 echo -e "  ${DIM}2)${RESET} Just show me the path — I'll run it myself"
 while true; do
     read -rp "$(echo -e "${YELLOW}Choose [1/2]: ${RESET}")" choice
@@ -107,22 +107,16 @@ while true; do
 done
 
 if [[ "$choice" == "1" ]]; then
-    while true; do
-        read -rp "$(echo -e "${YELLOW}Command name to add to .zshrc: ${RESET}")" cmd_name
-        [[ -n "$cmd_name" ]] && break
-        echo -e "${RED}  ✖ Command name cannot be empty.${RESET}"
-    done
-
     ZSHRC="${HOME}/.zshrc"
+    MARKER="# Pretabs-Kitty auto-launch"
 
-    if grep -qE "^(function ${cmd_name}[[:space:]]*()|alias ${cmd_name}=)" "$ZSHRC" 2>/dev/null; then
-        echo -e "${YELLOW}  ⚠ '${cmd_name}' already exists in ${ZSHRC} — skipping to avoid duplicates.${RESET}"
+    if grep -qF "$MARKER" "$ZSHRC" 2>/dev/null; then
+        echo -e "${YELLOW}  ⚠ A Pretabs-Kitty entry already exists in ${ZSHRC} — skipping to avoid duplicates.${RESET}"
     else
-        printf '\n# Pretabs-Kitty — %s\n' "$cmd_name" >> "$ZSHRC"
-        printf 'function %s() { bash "%s"; }\n' "$cmd_name" "$OUTPUT_SCRIPT" >> "$ZSHRC"
-        echo -e "${GREEN}  ✔ Added '${cmd_name}' to ${ZSHRC}${RESET}"
-        echo -e "${CYAN}  Apply now:${RESET} ${BOLD}source ~/.zshrc${RESET}"
-        echo -e "${CYAN}  Then just run:${RESET} ${BOLD}${cmd_name}${RESET}"
+        printf '\n%s\n' "$MARKER" >> "$ZSHRC"
+        printf 'bash "%s"\n' "$OUTPUT_SCRIPT" >> "$ZSHRC"
+        echo -e "${GREEN}  ✔ Added to ${ZSHRC}${RESET}"
+        echo -e "${CYAN}  The tab layout will launch automatically on every new zsh session.${RESET}"
     fi
 else
     echo ""
