@@ -9,7 +9,7 @@ An interactive setup wizard for [Kitty](https://sw.kovidgoyal.net/kitty/) that l
 - **Interactive wizard** — no manual script editing required.
 - **Custom tab count & names** — as many tabs as you need, each with the title you choose.
 - **Focus control** — pick which tab is active when the script runs.
-- **Auto-install to `.zshrc`** — optionally registers the layout to launch automatically on every new zsh session.
+- **Flexible `.zshrc` integration** — auto-launch on every session, register as a named command, or just keep the script for manual use or portability.
 - **Self-contained output** — the generated tab script is placed right next to `pretabs-kitty.sh`.
 
 ---
@@ -48,8 +48,9 @@ The wizard will ask you four questions:
 | 2 | A name for each tab |
 | 3 | Which tab should have focus after launch |
 | 4 | Name for the generated script *(default: `kitty-tabs.sh`)* |
+| 5 | **1** Auto-launch on every zsh session · **2** Add as a named command · **3** Just save the script |
 
-Then it asks whether to **add a command to `~/.zshrc`** or **just print the script path**.
+Then it asks what to do with the generated script — three options:
 
 ---
 
@@ -77,10 +78,11 @@ Generated script name [kitty-tabs.sh]: work-tabs.sh
 
   ✔ Script created: /path/to/Pretabs-Kitty/work-tabs.sh
 
-What would you like to do next?
-  1) Add it to ~/.zshrc — auto-launch on every new zsh session
-  2) Just show me the path — I'll run it myself
-Choose [1/2]: 1
+What would you like to do with the generated script?
+  1) Add to ~/.zshrc — auto-launch on every new zsh session
+  2) Add to ~/.zshrc — as a named command you call manually
+  3) Just save it — I'll decide what to do with it
+Choose [1/2/3]: 1
 
   ✔ Added to ~/.zshrc
   The tab layout will launch automatically on every new zsh session.
