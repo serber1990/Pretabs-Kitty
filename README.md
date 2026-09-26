@@ -8,6 +8,10 @@ Open your [Kitty](https://sw.kovidgoyal.net/kitty/) terminal with your tabs alre
 with the right one focused. Pretabs-Kitty is a small wizard that generates the layout script and, if you want,
 hooks it into your shell.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/serber1990/Pretabs-Kitty/main/docs/demo.gif" alt="Pretabs-Kitty demo: setup wizard and generated layout script" width="820">
+</p>
+
 ---
 
 ## ✨ Features
