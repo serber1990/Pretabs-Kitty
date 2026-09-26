@@ -1,148 +1,322 @@
 #!/usr/bin/env bash
-# Pretabs-Kitty — Interactive setup wizard
-# Generates a custom Kitty tab-launch script and optionally wires it into .zshrc
+# Pretabs-Kitty — generate a Kitty tab layout script and optionally hook it into your shell.
+# https://github.com/serber1990/Pretabs-Kitty
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -uo pipefail
 
-# ── Colors ────────────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-BOLD='\033[1m'
-DIM='\033[2m'
-RESET='\033[0m'
+VERSION="2.1.0"
 
-# ── Header ────────────────────────────────────────────────────────────────────
-echo -e "${CYAN}${BOLD}"
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║       Pretabs-Kitty  •  Setup        ║"
-echo "  ╚══════════════════════════════════════╝"
-echo -e "${RESET}"
-
-# ── 1. Number of tabs ─────────────────────────────────────────────────────────
-while true; do
-    read -rp "$(echo -e "${YELLOW}How many tabs do you want? ${RESET}")" num_tabs
-    [[ "$num_tabs" =~ ^[1-9][0-9]*$ ]] && break
-    echo -e "${RED}  ✖ Please enter a positive integer.${RESET}"
-done
-
-# ── 2. Tab names ──────────────────────────────────────────────────────────────
-declare -a tab_names
-echo ""
-echo -e "${CYAN}Name each tab:${RESET}"
-for ((i = 1; i <= num_tabs; i++)); do
-    while true; do
-        read -rp "  $(echo -e "${DIM}Tab ${i}${RESET}") name: " tname
-        [[ -n "$tname" ]] && break
-        echo -e "${RED}  ✖ Tab name cannot be empty.${RESET}"
-    done
-    tab_names+=("$tname")
-done
-
-# ── 3. Focus tab ──────────────────────────────────────────────────────────────
-echo ""
-if (( num_tabs == 1 )); then
-    focus_idx=0
+# ── Colors (disabled when not a terminal or NO_COLOR is set) ──────────────────
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    RED=$'\033[0;31m' GREEN=$'\033[0;32m' CYAN=$'\033[0;36m' YELLOW=$'\033[1;33m'
+    BOLD=$'\033[1m' DIM=$'\033[2m' RESET=$'\033[0m'
 else
-    echo -e "${CYAN}Which tab should have focus after launch?${RESET}"
-    for ((i = 1; i <= num_tabs; i++)); do
-        echo -e "  ${DIM}${i})${RESET} ${tab_names[$((i-1))]}"
-    done
-    while true; do
-        read -rp "$(echo -e "${YELLOW}Tab number [1-${num_tabs}]: ${RESET}")" focus_num
-        if [[ "$focus_num" =~ ^[0-9]+$ ]] && (( focus_num >= 1 && focus_num <= num_tabs )); then
-            break
-        fi
-        echo -e "${RED}  ✖ Enter a number between 1 and ${num_tabs}.${RESET}"
-    done
-    focus_idx=$(( focus_num - 1 ))
-fi
-focus_tab="${tab_names[$focus_idx]}"
-
-# ── 4. Output script name ─────────────────────────────────────────────────────
-echo ""
-read -rp "$(echo -e "${YELLOW}Generated script name [kitty-tabs.sh]: ${RESET}")" out_name
-[[ -z "$out_name" ]] && out_name="kitty-tabs.sh"
-[[ "$out_name" != *.sh ]] && out_name="${out_name}.sh"
-OUTPUT_SCRIPT="${SCRIPT_DIR}/${out_name}"
-
-if [[ -f "$OUTPUT_SCRIPT" ]]; then
-    echo -e "${YELLOW}  ⚠ ${OUTPUT_SCRIPT} already exists — it will be overwritten.${RESET}"
-    read -rp "$(echo -e "${YELLOW}  Continue? [y/N]: ${RESET}")" overwrite
-    [[ "${overwrite,,}" != "y" ]] && echo -e "${RED}Aborted.${RESET}" && exit 1
+    RED='' GREEN='' CYAN='' YELLOW='' BOLD='' DIM='' RESET=''
 fi
 
-# ── 5. Generate the tab script ────────────────────────────────────────────────
-{
+info()  { printf '%s\n' "$*"; }
+ok()    { printf '%s  ✔ %s%s\n' "$GREEN" "$*" "$RESET"; }
+warn()  { printf '%s  ⚠ %s%s\n' "$YELLOW" "$*" "$RESET" >&2; }
+die()   { printf '%s  ✖ %s%s\n' "$RED" "$*" "$RESET" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+Pretabs-Kitty ${VERSION} — generate a Kitty tab layout script.
+
+Usage: $(basename "$0") [options]
+       $(basename "$0") --uninstall NAME
+
+Run without options for the interactive wizard. Any option you pass is not asked again.
+
+Options:
+  -t, --tabs "A,B,C"      Tab titles, comma-separated
+  -f, --focus N           Tab (1-based) that gets focus after launch (default: 1)
+  -n, --name NAME         Name of the generated script (default: kitty-tabs)
+  -o, --output-dir DIR    Where to write it (default: \${XDG_CONFIG_HOME:-~/.config}/pretabs-kitty)
+  -i, --install MODE      auto     launch the layout when Kitty starts (once per Kitty instance)
+                          command  add a shell function that launches it
+                          none     just write the script
+  -c, --command NAME      Function name for --install command (default: the script name)
+      --rc FILE           Shell startup file to edit (default: ~/.zshrc or ~/.bashrc from \$SHELL)
+  -y, --yes               Overwrite an existing script without asking
+      --uninstall NAME    Remove NAME's block from the shell startup file and delete its script
+  -h, --help              Show this help
+  -V, --version           Show version
+EOF
+}
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+interactive() { [[ -t 0 ]]; }
+
+ask() {  # ask VAR "prompt" [default]
+    local __var="$1" __prompt="$2" __default="${3:-}" __reply
+    interactive || die "Missing value for: ${__prompt% *} (no terminal to ask — pass it as an option)"
+    read -rp "${YELLOW}${__prompt}${RESET} " __reply || exit 1
+    printf -v "$__var" '%s' "${__reply:-$__default}"
+}
+
+default_rc() {
+    case "$(basename "${SHELL:-}")" in
+        zsh)  echo "${ZDOTDIR:-$HOME}/.zshrc" ;;
+        bash) echo "$HOME/.bashrc" ;;
+        *)    echo "" ;;
+    esac
+}
+
+block_begin() { printf '# >>> pretabs-kitty: %s >>>' "$1"; }
+block_end()   { printf '# <<< pretabs-kitty: %s <<<' "$1"; }
+
+has_block() { [[ -f "$2" ]] && grep -qF "$(block_begin "$1")" "$2"; }
+
+remove_block() {  # remove_block NAME FILE
+    local name="$1" file="$2" tmp
+    has_block "$name" "$file" || return 1
+    tmp="$(mktemp)"
+    awk -v b="$(block_begin "$name")" -v e="$(block_end "$name")" '
+        $0 == b { skip = 1; next }
+        $0 == e { skip = 0; next }
+        !skip
+    ' "$file" > "$tmp" && cat "$tmp" > "$file"
+    rm -f "$tmp"
+}
+
+# ── Script generation ─────────────────────────────────────────────────────────
+
+# The single quotes are intentional: these lines are code for the generated script.
+# shellcheck disable=SC2016
+generate_script() {  # generate_script FOCUS_INDEX TAB...
+    local focus="$1"; shift
+    local tabs=("$@") i
     printf '#!/usr/bin/env bash\n'
-    printf '# Generated by pretabs-kitty.sh\n'
-    printf '# Tabs : %s\n' "${tab_names[*]}"
-    printf '# Focus: %s\n\n' "$focus_tab"
-
-    printf "kitty @ set-tab-title '%s'\n" "${tab_names[0]}"
-
-    for ((i = 1; i < num_tabs; i++)); do
-        printf 'kitty @ launch --type=tab --tab-title "%s" --keep-focus\n' "${tab_names[$i]}"
+    printf '# Generated by pretabs-kitty %s — https://github.com/serber1990/Pretabs-Kitty\n' "$VERSION"
+    printf '# Tabs : %s\n' "$(IFS=,; echo "${tabs[*]}")"
+    printf '# Focus: %s\n\n' "${tabs[$focus]}"
+    printf 'set -euo pipefail\n\n'
+    printf 'if [[ -z "${KITTY_WINDOW_ID:-}" ]]; then\n'
+    printf '    echo "This layout must be launched from inside a Kitty window." >&2\n'
+    printf '    exit 1\n'
+    printf 'fi\n\n'
+    printf '# Window ids returned by "kitty @ launch" let us focus the right tab even\n'
+    printf '# when several tabs share a title.\n'
+    printf 'ids=("$KITTY_WINDOW_ID")\n'
+    printf 'kitty @ set-tab-title --match "window_id:$KITTY_WINDOW_ID" %q\n' "${tabs[0]}"
+    for (( i = 1; i < ${#tabs[@]}; i++ )); do
+        printf 'ids+=("$(kitty @ launch --type=tab --keep-focus --tab-title %q)")\n' "${tabs[$i]}"
     done
-
-    if (( num_tabs > 1 )); then
-        printf "kitty @ focus-tab --match 'title:%s'\n" "$focus_tab"
+    if (( ${#tabs[@]} > 1 )); then
+        printf 'kitty @ focus-window --match "id:${ids[%d]}"\n' "$focus"
     fi
-} > "$OUTPUT_SCRIPT"
-chmod +x "$OUTPUT_SCRIPT"
+}
 
-echo ""
-echo -e "${GREEN}  ✔ Script created:${RESET} ${BOLD}${OUTPUT_SCRIPT}${RESET}"
+# The auto-launch hook runs the layout once per Kitty instance: the marker file is
+# created before the script opens new tabs, so their shells skip it (no tab explosion).
+auto_block() {  # auto_block NAME SCRIPT
+    local q; printf -v q '%q' "$2"
+    cat <<EOF
+$(block_begin "$1")
+if [ -n "\${KITTY_PID:-}" ] && [ -n "\${KITTY_WINDOW_ID:-}" ]; then
+    _pretabs_marker="\${XDG_RUNTIME_DIR:-/tmp}/pretabs-kitty-\$(id -u)-\${KITTY_PID}-$1"
+    if [ ! -e "\$_pretabs_marker" ]; then
+        : > "\$_pretabs_marker"
+        bash $q
+    fi
+    unset _pretabs_marker
+fi
+$(block_end "$1")
+EOF
+}
 
-# ── 6. Integration choice ─────────────────────────────────────────────────────
-echo ""
-echo -e "${CYAN}What would you like to do with the generated script?${RESET}"
-echo -e "  ${DIM}1)${RESET} Add to ~/.zshrc — auto-launch on every new zsh session"
-echo -e "  ${DIM}2)${RESET} Add to ~/.zshrc — as a named command you call manually"
-echo -e "  ${DIM}3)${RESET} Just save it — I'll decide what to do with it"
-while true; do
-    read -rp "$(echo -e "${YELLOW}Choose [1/2/3]: ${RESET}")" choice
-    [[ "$choice" == "1" || "$choice" == "2" || "$choice" == "3" ]] && break
-    echo -e "${RED}  ✖ Enter 1, 2, or 3.${RESET}"
+command_block() {  # command_block NAME FUNCTION SCRIPT
+    local q; printf -v q '%q' "$3"
+    printf '%s\n%s() { bash %s; }\n%s\n' "$(block_begin "$1")" "$2" "$q" "$(block_end "$1")"
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+
+TABS_ARG="" FOCUS_ARG="" NAME="" OUTPUT_DIR="" INSTALL="" CMD_NAME="" RC_FILE="" YES=0 UNINSTALL=""
+RC_SET=0
+
+while (( $# > 0 )); do
+    case "$1" in
+        -t|--tabs)       TABS_ARG="${2:?--tabs needs a value}"; shift 2 ;;
+        -f|--focus)      FOCUS_ARG="${2:?--focus needs a value}"; shift 2 ;;
+        -n|--name)       NAME="${2:?--name needs a value}"; shift 2 ;;
+        -o|--output-dir) OUTPUT_DIR="${2:?--output-dir needs a value}"; shift 2 ;;
+        -i|--install)    INSTALL="${2:?--install needs a value}"; shift 2 ;;
+        -c|--command)    CMD_NAME="${2:?--command needs a value}"; shift 2 ;;
+        --rc)            RC_FILE="${2:?--rc needs a value}"; RC_SET=1; shift 2 ;;
+        -y|--yes)        YES=1; shift ;;
+        --uninstall)     UNINSTALL="${2:?--uninstall needs a value}"; shift 2 ;;
+        -h|--help)       usage; exit 0 ;;
+        -V|--version)    echo "pretabs-kitty ${VERSION}"; exit 0 ;;
+        *)               usage >&2; die "Unknown option: $1" ;;
+    esac
 done
 
-ZSHRC="${HOME}/.zshrc"
+OUTPUT_DIR="${OUTPUT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/pretabs-kitty}"
+(( RC_SET )) || RC_FILE="$(default_rc)"
 
-if [[ "$choice" == "1" ]]; then
-    MARKER="# Pretabs-Kitty auto-launch"
-    if grep -qF "$MARKER" "$ZSHRC" 2>/dev/null; then
-        echo -e "${YELLOW}  ⚠ A Pretabs-Kitty auto-launch entry already exists in ${ZSHRC} — skipping.${RESET}"
-    else
-        printf '\n%s\n' "$MARKER" >> "$ZSHRC"
-        printf 'bash "%s"\n' "$OUTPUT_SCRIPT" >> "$ZSHRC"
-        echo -e "${GREEN}  ✔ Added to ${ZSHRC}${RESET}"
-        echo -e "${CYAN}  The tab layout will launch automatically on every new zsh session.${RESET}"
-    fi
+valid_name() { [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]; }
 
-elif [[ "$choice" == "2" ]]; then
-    while true; do
-        read -rp "$(echo -e "${YELLOW}Command name: ${RESET}")" cmd_name
-        [[ -n "$cmd_name" ]] && break
-        echo -e "${RED}  ✖ Command name cannot be empty.${RESET}"
+# ── Uninstall ─────────────────────────────────────────────────────────────────
+
+if [[ -n "$UNINSTALL" ]]; then
+    valid_name "$UNINSTALL" || die "Invalid name: $UNINSTALL"
+    removed=0
+    for rc in "$RC_FILE" "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc"; do
+        [[ -n "$rc" ]] || continue
+        if remove_block "$UNINSTALL" "$rc"; then ok "Removed from $rc"; removed=1; fi
     done
-    if grep -qE "^function ${cmd_name}[[:space:]]*\(\)|^alias ${cmd_name}=" "$ZSHRC" 2>/dev/null; then
-        echo -e "${YELLOW}  ⚠ '${cmd_name}' already exists in ${ZSHRC} — skipping to avoid duplicates.${RESET}"
-    else
-        printf '\n# Pretabs-Kitty — %s\n' "$cmd_name" >> "$ZSHRC"
-        printf 'function %s() { bash "%s"; }\n' "$cmd_name" "$OUTPUT_SCRIPT" >> "$ZSHRC"
-        echo -e "${GREEN}  ✔ Added '${cmd_name}' to ${ZSHRC}${RESET}"
-        echo -e "${CYAN}  Apply now:${RESET} ${BOLD}source ~/.zshrc${RESET}"
-        echo -e "${CYAN}  Then run it with:${RESET} ${BOLD}${cmd_name}${RESET}"
+    if [[ -f "$OUTPUT_DIR/$UNINSTALL.sh" ]]; then
+        rm -f "$OUTPUT_DIR/$UNINSTALL.sh" && ok "Deleted $OUTPUT_DIR/$UNINSTALL.sh"; removed=1
     fi
-
-else
-    echo ""
-    echo -e "${GREEN}  Script saved at:${RESET}"
-    echo -e "  ${BOLD}${OUTPUT_SCRIPT}${RESET}"
-    echo -e "${CYAN}  Run it with: ${BOLD}bash ${OUTPUT_SCRIPT}${RESET}"
+    (( removed )) || warn "Nothing found for '$UNINSTALL'"
+    exit 0
 fi
 
-echo ""
-echo -e "${GREEN}  Done! Enjoy your Kitty tabs.${RESET}"
-echo ""
+# ── Wizard ────────────────────────────────────────────────────────────────────
+
+if interactive; then
+    printf '\n%s%s  ╔══════════════════════════════════════╗\n' "$CYAN" "$BOLD"
+    printf '  ║       Pretabs-Kitty  •  Setup        ║\n'
+    printf '  ╚══════════════════════════════════════╝%s\n\n' "$RESET"
+fi
+
+# 1. Tabs
+declare -a tab_names=()
+if [[ -n "$TABS_ARG" ]]; then
+    IFS=',' read -r -a raw_tabs <<< "$TABS_ARG"
+    for t in "${raw_tabs[@]}"; do
+        t="${t#"${t%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"   # trim
+        [[ -n "$t" ]] && tab_names+=("$t")
+    done
+    (( ${#tab_names[@]} > 0 )) || die "--tabs must contain at least one name"
+else
+    while true; do
+        ask num_tabs "How many tabs do you want?"
+        [[ "$num_tabs" =~ ^[1-9][0-9]*$ ]] && break
+        warn "Please enter a positive integer."
+    done
+    info "${CYAN}Name each tab:${RESET}"
+    for (( i = 1; i <= num_tabs; i++ )); do
+        while true; do
+            ask tname "  Tab ${i} name:"
+            [[ -n "$tname" ]] && break
+            warn "Tab name cannot be empty."
+        done
+        tab_names+=("$tname")
+    done
+fi
+num_tabs=${#tab_names[@]}
+
+# 2. Focus
+if [[ -z "$FOCUS_ARG" ]]; then
+    if (( num_tabs == 1 )) || ! interactive; then
+        FOCUS_ARG=1
+    else
+        info ""
+        info "${CYAN}Which tab should have focus after launch?${RESET}"
+        for (( i = 1; i <= num_tabs; i++ )); do info "  ${DIM}${i})${RESET} ${tab_names[$((i-1))]}"; done
+        while true; do
+            ask FOCUS_ARG "Tab number [1-${num_tabs}]:" 1
+            [[ "$FOCUS_ARG" =~ ^[0-9]+$ ]] && (( FOCUS_ARG >= 1 && FOCUS_ARG <= num_tabs )) && break
+            warn "Enter a number between 1 and ${num_tabs}."
+        done
+    fi
+fi
+if ! [[ "$FOCUS_ARG" =~ ^[0-9]+$ ]] || (( FOCUS_ARG < 1 || FOCUS_ARG > num_tabs )); then
+    die "--focus must be between 1 and ${num_tabs}"
+fi
+focus_idx=$(( FOCUS_ARG - 1 ))
+
+# 3. Script name
+if [[ -z "$NAME" ]]; then
+    if interactive; then
+        info ""
+        ask NAME "Layout name [kitty-tabs]:" kitty-tabs
+    else
+        NAME=kitty-tabs
+    fi
+fi
+NAME="${NAME%.sh}"
+valid_name "$NAME" || die "Invalid name '$NAME' (letters, digits, '-' and '_' only)"
+OUTPUT_SCRIPT="${OUTPUT_DIR}/${NAME}.sh"
+
+if [[ -f "$OUTPUT_SCRIPT" ]] && (( ! YES )); then
+    warn "${OUTPUT_SCRIPT} already exists."
+    interactive || die "Use --yes to overwrite it."
+    overwrite=''
+    ask overwrite "  Overwrite it? [y/N]:" n
+    [[ "${overwrite,,}" == y* ]] || die "Aborted."
+fi
+
+# 4. Write the layout script
+mkdir -p "$OUTPUT_DIR" || die "Cannot create $OUTPUT_DIR"
+generate_script "$focus_idx" "${tab_names[@]}" > "$OUTPUT_SCRIPT" || die "Cannot write $OUTPUT_SCRIPT"
+chmod +x "$OUTPUT_SCRIPT"
+info ""
+ok "Layout script: ${BOLD}${OUTPUT_SCRIPT}${RESET}"
+
+# 5. Shell integration
+if [[ -z "$INSTALL" ]]; then
+    if interactive; then
+        info ""
+        info "${CYAN}What would you like to do with it?${RESET}"
+        info "  ${DIM}1)${RESET} Launch it automatically when Kitty starts (once per Kitty instance)"
+        info "  ${DIM}2)${RESET} Add a shell command that launches it"
+        info "  ${DIM}3)${RESET} Nothing else — I'll run it myself"
+        choice=''
+        while true; do
+            ask choice "Choose [1/2/3]:"
+            case "$choice" in
+                1) INSTALL='auto'; break ;;
+                2) INSTALL='command'; break ;;
+                3) INSTALL='none'; break ;;
+            esac
+            warn "Enter 1, 2 or 3."
+        done
+    else
+        INSTALL=none
+    fi
+fi
+
+case "$INSTALL" in
+    none)
+        info ""
+        info "${CYAN}Run it from any Kitty window:${RESET} ${BOLD}bash ${OUTPUT_SCRIPT}${RESET}"
+        ;;
+    auto|command)
+        [[ -n "$RC_FILE" ]] || die "Unknown shell '${SHELL:-}' — pass the startup file with --rc FILE"
+        if [[ "$INSTALL" == command ]]; then
+            if [[ -z "$CMD_NAME" ]]; then
+                if interactive; then ask CMD_NAME "Command name [${NAME}]:" "$NAME"; else CMD_NAME="$NAME"; fi
+            fi
+            [[ "$CMD_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+                || die "Invalid command name '$CMD_NAME' (letters, digits and '_' only)"
+            if ! has_block "$NAME" "$RC_FILE" && command -v "$CMD_NAME" >/dev/null 2>&1; then
+                warn "'$CMD_NAME' already exists as a command — it will be shadowed by the new function."
+            fi
+            block="$(command_block "$NAME" "$CMD_NAME" "$OUTPUT_SCRIPT")"
+        else
+            block="$(auto_block "$NAME" "$OUTPUT_SCRIPT")"
+        fi
+        touch "$RC_FILE" || die "Cannot write $RC_FILE"
+        remove_block "$NAME" "$RC_FILE" && info "  ${DIM}(replacing the previous '$NAME' entry)${RESET}"
+        printf '\n%s\n' "$block" >> "$RC_FILE"
+        ok "Added to ${RC_FILE}"
+        if [[ "$INSTALL" == auto ]]; then
+            info "  ${CYAN}The layout opens the next time Kitty starts.${RESET}"
+        else
+            info "  ${CYAN}Reload your shell:${RESET} ${BOLD}source ${RC_FILE}${RESET}  then run ${BOLD}${CMD_NAME}${RESET}"
+        fi
+        info "  ${DIM}Remove it any time with: $(basename "$0") --uninstall ${NAME}${RESET}"
+        ;;
+    *)
+        die "--install must be auto, command or none"
+        ;;
+esac
+
+info ""
+info "${GREEN}  Done! Enjoy your Kitty tabs.${RESET}"
+info ""
